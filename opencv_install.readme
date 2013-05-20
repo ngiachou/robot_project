@@ -1,0 +1,79 @@
+# Ubuntu 12.04 provides a package of OpenCV 2.3.1 that you can easily install by typing:
+
+	sudo apt-get install libopencv-dev
+
+### Install Dependencies ###
+#
+# Essentials
+# These are libraries and tools required by OpenCV.
+
+	sudo apt-get install build-essential checkinstall cmake pkg-config yasm
+
+# Image I/O
+# Libraries for reading and writing various image types.
+# If you do not install then the versions supplied by OpenCV will be used.
+
+	sudo apt-get install libtiff4-dev libjpeg-dev libjasper-dev
+
+# Video I/O
+# You need some or all of these packages to add video 
+#capturing/encoding/decoding capabilities to the highgui module.
+
+	sudo apt-get install libavcodec-dev libavformat-dev libswscale-dev libdc1394-22-dev libxine-dev libgstreamer0.10-dev libgstreamer-plugins-base0.10-dev libv4l-dev
+
+# Python
+# Packages needed to build the Python wrappers.
+
+	sudo apt-get install python-dev python-numpy
+
+# Other third-party libraries
+# Install Intel TBB to enable parallel code in OpenCV.
+
+	sudo apt-get install libtbb-dev
+
+# GUI
+# The default back-end for highgui in Linux is GTK. You can optionally install QT instead of GTK 
+# and later enable it in the configuration (see next section).
+
+	sudo apt-get install libqt4-dev libgtk2.0-dev
+
+
+
+### Compile and Install ###
+#
+# Get a copy of the source code, extract and create a build directory
+
+	tar -xvf OpenCV-2.4.0.tar.bz2
+	cd OpenCV-2.4.0/
+	mkdir build
+	cd build
+
+# Configure using CMake. You have a lot of options in this step. This is what I use: 
+
+	cmake -D WITH_QT=ON -D WITH_XINE=ON -D WITH_OPENGL=ON -D WITH_TBB=ON -D BUILD_EXAMPLES=ON ..
+
+# Start compiling:
+
+	make
+
+# If compilation finishes without errors, you can install by saying:
+
+	sudo make install
+
+# Finally, make sure that your programs can link to the OpenCV library in run-time by adding 
+# the following line at the end of your /etc/ld.so.conf:
+#
+#	/usr/local/lib
+#
+# And then configure dynamic linker run-time bindings:
+
+	sudo ldconfig
+
+### Testing ###
+#
+# An easy way to test that the compilation went well is to use the OpenCV test utilities. 
+# For example, to test the core module go to OpenCV-2.4.0/build/bin and run:
+
+	./opencv_test_core
+
+

@@ -1,0 +1,40 @@
+#include "Follow.h"
+#include "Movement.h"
+Follow::Follow(ArRobot *robot,ArSonarDevice *sonar)
+{
+	myRobot = robot;
+	mySonar = sonar;
+	width = 640;
+	stopDistance = 500;
+}
+
+int Follow::run(int centerOfBB[2])
+{
+	double range = mySonar->currentReadingPolar(-70, 70) - myRobot->getRobotRadius();
+	Movement move  = Movement(myRobot);
+
+
+	//if we are safe
+	if(range > stopDistance)
+	{	//and we have a target
+		if(centerOfBB[0] != -1)
+		{	//target on the right
+			if(centerOfBB[0] > width/2)
+				move.turn(-10);
+			//on the left
+			if(centerOfBB[0] < width/2)
+				move.turn(10);
+			//in the middle
+			if(centerOfBB[0] <= width/2 + 20 && centerOfBB[0] >= width/2 - 20)
+                                move.forward(100);
+                }
+		//we have NO target
+		else
+			move.stop();
+	}
+	//too close
+	else
+		move.stop();
+
+
+}
