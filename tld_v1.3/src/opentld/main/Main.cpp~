@@ -1,0 +1,526 @@
+/*  Copyright 2011 AIT Austrian Institute of Technology
+*
+*   This file is part of OpenTLD.
+*
+*   OpenTLD is free software: you can redistribute it and/or modify
+*   it under the terms of the GNU General Public License as published by
+*    the Free Software Foundation, either version 3 of the License, or
+*   (at your option) any later version.
+*
+*   OpenTLD is distributed in the hope that it will be useful,
+*   but WITHOUT ANY WARRANTY; without even the implied warranty of
+*   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*   GNU General Public License for more details.
+*
+*   You should have received a copy of the GNU General Public License
+*   along with OpenTLD.  If not, see <http://www.gnu.org/licenses/>.
+*
+*/
+/*
+ * MainX.cpp
+ *
+ *  Created on: Nov 17, 2011
+ *      Author: Georg Nebehay
+ */
+
+#include "Main.h"
+
+#include "Config.h"
+#include "ImAcq.h"
+#include "Gui.h"
+#include "TLDUtil.h"
+
+using namespace tld;
+using namespace cv;
+
+void Main::doWork()
+{
+
+    IplImage *img = imAcqGetImg(imAcq);
+    Mat grey(img->height, img->width, CV_8UC1);
+    cvtColor(cv::Mat(img), grey, CV_BGR2GRAY);
+
+    tld->detectorCascade->imgWidth = grey.cols;
+    tld->detectorCascade->imgHeight = grey.rows;
+    tld->detectorCascade->imgWidthStep = grey.step;
+
+    //Opening socket to communicate with robot server
+    ClientSocket client_socket ( "localhost", 30000 );
+    //flag to start the communication
+    bool communicate = false;
+
+    if(selectManually)
+    {
+
+        CvRect box;
+
+        if(getBBFromUser(img, box, gui) == PROGRAM_EXIT)
+        {
+            return;
+        }
+
+        if(initialBB == NULL)
+        {
+            initialBB = new int[4];
+        }
+
+        initialBB[0] = box.x;
+        initialBB[1] = box.y;
+        initialBB[2] = box.width;
+        initialBB[3] = box.height;
+    }
+
+    FILE *resultsFile = NULL;
+
+    if(printResults != NULL)
+    {
+        resultsFile = fopen(printResults, "w");
+    }
+
+    bool reuseFrameOnce = false;
+    bool skipProcessingOnce = false;
+
+    if(loadModel && modelPath != NULL)
+    {
+        tld->readFromFile(modelPath);
+        reuseFrameOnce = true;
+    }
+    else if(initialBB != NULL)
+    {
+        Rect bb = tldArrayToRect(initialBB);
+
+        printf("Starting at %d %d %d %d\n", bb.x, bb.y, bb.width, bb.height);
+
+        tld->selectObject(grey, &bb);
+        skipProcessingOnce = true;
+        reuseFrameOnce = true;
+    }
+
+    while(imAcqHasMoreFrames(imAcq))
+    {
+        double tic = cvGetTickCount();
+
+        if(!reuseFrameOnce)
+        {
+            img = imAcqGetImg(imAcq);
+
+            if(img == NULL)
+            {
+                printf("current image is NULL, assuming end of input.\n");
+                break;
+            }
+
+            cvtColor(cv::Mat(img), grey, CV_BGR2GRAY);
+        }
+
+        if(!skipProcessingOnce)
+        {
+            tld->processImage(img);
+        }
+        else
+        {
+            skipProcessingOnce = false;
+        }
+
+        if(printResults != NULL)
+        {
+            if(tld->currBB != NULL)
+            {
+                fprintf(resultsFile, "%d %.2d %.2d %.2d %.2d %f\n", imAcq->currentFrame - 1, tld->currBB->x, tld->currBB->y, tld->currBB->width, tld->currBB->height, tld->currConf);
+            }
+            else
+            {
+                fprintf(resultsFile, "%d NaN NaN NaN NaN NaN\n", imAcq->currentFrame - 1);
+            }
+        }
+
+	    //if communicate flag is true, start communication
+	    if(communicate){
+      	  if(tld->currBB != NULL){
+	     	  try{
+		        int cor[2];
+		        cor[0] = tld->currBB->x + tld->currBB->width/2;
+		        cor[1] = tld->currBB->y + tld->currBB->height/2;
+		        client_socket << cor;
+		      }
+	              catch ( SocketException& ) {}
+	      }
+	      else{
+		    try{
+		      int cor[2];
+		      cor[0] = -1;
+		      cor[1] = -1;
+		      client_socket << cor;
+		    }
+	            catch ( SocketException& ) {}
+	      }
+        }
+
+
+        double toc = (cvGetTickCount() - tic) / cvGetTickFrequency();
+
+        toc = toc / 1000000;
+
+        float fps = 1 / toc;
+
+        int confident = (tld->currConf >= threshold) ? 1 : 0;
+
+        if(showOutput || saveDir != NULL)
+        {
+            char string[128];
+
+            char learningString[10] = "";
+
+            if(tld->learning)
+            {
+                strcpy(learningString, "Learning");
+            }
+
+            sprintf(string, "#%d,Posterior %.2f; fps: %.2f, #numwindows:%d, %s", imAcq->currentFrame - 1, tld->currConf, fps, tld->detectorCascade->numWindows, learningString);
+            CvScalar yellow = CV_RGB(255, 255, 0);
+            CvScalar blue = CV_RGB(0, 0, 255);
+            CvScalar black = CV_RGB(0, 0, 0);
+            CvScalar white = CV_RGB(255, 255, 255);
+
+            if(tld->currBB != NULL)
+            {
+                CvScalar rectangleColor = (confident) ? blue : yellow;
+                cvRectangle(img, tld->currBB->tl(), tld->currBB->br(), rectangleColor, 8, 8, 0);
+            }
+
+            CvFont font;
+            cvInitFont(&font, CV_FONT_HERSHEY_SIMPLEX, .5, .5, 0, 1, 8);
+            cvRectangle(img, cvPoint(0, 0), cvPoint(img->width, 50), black, CV_FILLED, 8, 0);
+            cvPutText(img, string, cvPoint(25, 25), &font, white);
+
+            if(showForeground)
+            {
+
+                for(size_t i = 0; i < tld->detectorCascade->detectionResult->fgList->size(); i++)
+                {
+                    Rect r = tld->detectorCascade->detectionResult->fgList->at(i);
+                    cvRectangle(img, r.tl(), r.br(), white, 1);
+                }
+
+            }
+
+
+            if(showOutput)
+            {
+                gui->showImage(img);
+                char key = gui->getKey();
+
+                if(key == 'q') break;
+
+                if(key == 'b')
+                {
+
+                    ForegroundDetector *fg = tld->detectorCascade->foregroundDetector;
+
+                    if(fg->bgImg.empty())
+                    {
+                        fg->bgImg = grey.clone();
+                    }
+                    else
+                    {
+                        fg->bgImg.release();
+                    }
+                }
+
+                if(key == 'c')
+                {
+                    //clear everything
+                    tld->release();
+                }
+
+                if(key == 'l')
+                {
+                    tld->learningEnabled = !tld->learningEnabled;
+                    printf("LearningEnabled: %d\n", tld->learningEnabled);
+                }
+
+                if(key == 'a')
+                {
+                    tld->alternating = !tld->alternating;
+                    printf("alternating: %d\n", tld->alternating);
+                }
+
+                if(key == 'e')
+                {
+                    tld->writeToFile(modelExportFile);
+                }
+
+                if(key == 'i')
+                {
+                    tld->readFromFile(modelPath);
+                }
+
+                if(key == 'r')
+                {
+                    CvRect box;
+
+                    if(getBBFromUser(img, box, gui) == PROGRAM_EXIT)
+                    {
+                        break;
+                    }
+
+                    Rect r = Rect(box);
+
+                    tld->selectObject(grey, &r);
+                }
+            }
+
+            if(saveDir != NULL)
+            {
+                char fileName[256];
+                sprintf(fileName, "%s/%.5d.png", saveDir, imAcq->currentFrame - 1);
+
+                cvSaveImage(fileName, img);
+            }
+        }
+
+        if(!reuseFrameOnce)
+        {
+            cvReleaseImage(&img);
+        }
+        else
+        {
+            reuseFrameOnce = false;
+        }
+    }
+
+    if(exportModelAfterRun)
+    {
+        tld->writeToFile(modelExportFile);
+    }
+}
+
+/*** SOCKETS VAGURAS IMPLEMANTATION ***/
+#include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <iostream>
+
+Socket::Socket() :
+  m_sock ( -1 )
+{
+
+  memset ( &m_addr,
+	   0,
+	   sizeof ( m_addr ) );
+
+}
+
+Socket::~Socket()
+{
+  if ( is_valid() )
+    ::close ( m_sock );
+}
+
+bool Socket::create()
+{
+  m_sock = socket ( AF_INET,
+		    SOCK_STREAM,
+		    0 );
+
+  if ( ! is_valid() )
+    return false;
+
+
+  // TIME_WAIT - argh
+  int on = 1;
+  if ( setsockopt ( m_sock, SOL_SOCKET, SO_REUSEADDR, ( const char* ) &on, sizeof ( on ) ) == -1 )
+    return false;
+
+
+  return true;
+
+}
+
+
+
+bool Socket::bind ( const int port )
+{
+
+  if ( ! is_valid() )
+    {
+      return false;
+    }
+
+
+
+  m_addr.sin_family = AF_INET;
+  m_addr.sin_addr.s_addr = INADDR_ANY;
+  m_addr.sin_port = htons ( port );
+
+  int bind_return = ::bind ( m_sock,
+			     ( struct sockaddr * ) &m_addr,
+			     sizeof ( m_addr ) );
+
+
+  if ( bind_return == -1 )
+    {
+      return false;
+    }
+
+  return true;
+}
+
+
+bool Socket::listen() const
+{
+  if ( ! is_valid() )
+    {
+      return false;
+    }
+
+  int listen_return = ::listen ( m_sock, MAXCONNECTIONS );
+
+
+  if ( listen_return == -1 )
+    {
+      return false;
+    }
+
+  return true;
+}
+
+
+bool Socket::accept ( Socket& new_socket ) const
+{
+  int addr_length = sizeof ( m_addr );
+  new_socket.m_sock = ::accept ( m_sock, ( sockaddr * ) &m_addr, ( socklen_t * ) &addr_length );
+
+  if ( new_socket.m_sock <= 0 )
+    return false;
+  else
+    return true;
+}
+
+
+bool Socket::send ( const int s[2] ) const
+{
+  int status = ::send ( m_sock, s, sizeof(int[2]), MSG_NOSIGNAL );
+  if ( status == -1 )
+    {
+      return false;
+    }
+  else
+    {
+      return true;
+    }
+}
+
+
+int Socket::recv ( int s[2] ) const
+{
+  //char buf [ MAXRECV + 1 ];
+  int buf[2];
+
+  for(int i=0; i<2; i++){
+	buf[i] = 0;
+  	s[i] = 0;
+  }
+
+  //memset ( buf, 0, MAXRECV + 1 );
+
+  int status = ::recv ( m_sock, buf, sizeof(int[2]), 0 );
+
+  if ( status == -1 )
+    {
+      std::cout << "status == -1   errno == " << errno << "  in Socket::recv\n";
+      return 0;
+    }
+  else if ( status == 0 )
+    {
+      return 0;
+    }
+  else
+    {
+      for(int i=0; i<2; i++){
+  	s[i] = buf[i];
+      }
+      return status;
+    }
+}
+
+
+
+bool Socket::connect ( const std::string host, const int port )
+{
+  if ( ! is_valid() ) return false;
+
+  m_addr.sin_family = AF_INET;
+  m_addr.sin_port = htons ( port );
+
+  int status = inet_pton ( AF_INET, host.c_str(), &m_addr.sin_addr );
+
+  if ( errno == EAFNOSUPPORT ) return false;
+
+  status = ::connect ( m_sock, ( sockaddr * ) &m_addr, sizeof ( m_addr ) );
+
+  if ( status == 0 )
+    return true;
+  else
+    return false;
+}
+
+void Socket::set_non_blocking ( const bool b )
+{
+
+  int opts;
+
+  opts = fcntl ( m_sock,
+		 F_GETFL );
+
+  if ( opts < 0 )
+    {
+      return;
+    }
+
+  if ( b )
+    opts = ( opts | O_NONBLOCK );
+  else
+    opts = ( opts & ~O_NONBLOCK );
+
+  fcntl ( m_sock,
+	  F_SETFL,opts );
+
+}
+
+ClientSocket::ClientSocket ( std::string host, int port )
+{
+  if ( ! Socket::create() )
+    {
+      throw SocketException ( "Could not create client socket." );
+    }
+
+  if ( ! Socket::connect ( host, port ) )
+    {
+      throw SocketException ( "Could not bind to port." );
+    }
+
+}
+
+
+const ClientSocket& ClientSocket::operator << ( const int s[2] ) const
+{
+  if ( ! Socket::send ( s ) )
+    {
+      throw SocketException ( "Could not write to socket." );
+    }
+
+  return *this;
+
+}
+
+
+const ClientSocket& ClientSocket::operator >> ( int s[2] ) const
+{
+  if ( ! Socket::recv ( s ) )
+    {
+      throw SocketException ( "Could not read from socket." );
+    }
+
+  return *this;
+}
