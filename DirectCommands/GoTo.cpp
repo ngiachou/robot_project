@@ -16,25 +16,38 @@ GoTo::GoTo(ArRobot *robot, ArPathPlanningTask *pathTask, ArMap *map){
 	//path task
 	myPathTask = pathTask;
 
+	//Don't have a plan yet
+	pathPlaned = 0;
+
 }
 
 //The main method
 int GoTo::run(int currentBBCenter[2]){
-	//Reached target location give the flow to Follow
-	if(myPathTask->getState() == ArPathPlanningTask::REACHED_GOAL)
-		return 1;
 
-	//Not moving towards goal then get one
-	if(myPathTask->getState() != ArPathPlanningTask::MOVING_TO_GOAL){
+	//Don't have a plan
+	if(!pathPlaned){
 		//This call is to get the x,y from mapping
 		getGoal();
 
 		myRobot->clearDirectMotion();
 		//Plan to pose
 		myPathTask->pathPlanToGoal("across");
+
+		//Now i have a plan
+		pathPlaned = 1;
+
 		//Flow stays in GoTo
 		return 3;
 	}
+
+        //Reached target location give the flow to Follow
+        if(myPathTask->getState() == ArPathPlanningTask::REACHED_GOAL){
+                //Plan completed
+                pathPlaned = 0;
+
+                return 1;
+        }
+
 	if(myPathTask->getState() == ArPathPlanningTask::FAILED_PLAN)
 		return 2;
 	//Moving to goal keep flow until goal reached

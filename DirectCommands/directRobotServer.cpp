@@ -109,6 +109,27 @@ try{
 	GoTo goTo(&robot,&pathTask,&arMap);
 	Search s(&robot,&sonar);
 
+	// Bumpers.
+  	ArBumpers bumpers;
+  	robot.addRangeDevice(&bumpers);
+  	pathTask.addRangeDevice(&bumpers, ArPathPlanningTask::CURRENT);
+
+  	// Forbidden regions from the map
+  	ArForbiddenRangeDevice forbidden(&arMap);
+  	robot.addRangeDevice(&forbidden);
+  	pathTask.addRangeDevice(&forbidden, ArPathPlanningTask::CURRENT);
+
+  	// Mode To stop and remain stopped:
+  	ArServerModeStop modeStop(&moServer, &robot);
+
+  	// Action to slow down robot when localization score drops but not lost.
+  	ArActionSlowDownWhenNotCertain actionSlowDown(&locTask);
+  	pathTask.getPathPlanActionGroup()->addAction(&actionSlowDown, 140);
+
+  	// Action to stop the robot when localization is "lost" (score too low)
+  	ArActionLost actionLostPath(&locTask, &pathTask);
+  	pathTask.getPathPlanActionGroup()->addAction(&actionLostPath, 150);
+
 	// These provide various kinds of information to the client:
 	ArServerInfoRobot serverInfoRobot(&moServer, &robot);
 	ArServerInfoSensor serverInfoSensor(&moServer, &robot);

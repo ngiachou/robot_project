@@ -8,6 +8,7 @@ class GoTo{
 	ArMap *myMap;
 	ArPathPlanningTask *myPathTask;
 	ArPose myGoal;
+	int pathPlaned;
 
 	public:
 	//Constructor
