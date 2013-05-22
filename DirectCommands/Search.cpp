@@ -36,14 +36,11 @@ int Search::seek(int lastPositionXY[2],int currentPositionXY[2])
         // if we are safe
         if(range > stopDistance)
         {       //if the target was last seen on the right
-                if( lastPositionXY[0] > width/2 +width/4)
+                if( lastPositionXY[0] > width/2 )
                         move.turn(-36);
                 //if the target was last seen on the left
-                if( lastPositionXY[0] < width/2 -width/4)
+                if( lastPositionXY[0] =< width/2 )
                         move.turn(36);
-                //if the target was last seen in the middle
-                if( lastPositionXY[0]>= width/2 -width/4 && lastPositionXY[0] <= width/2 +width/4)
-                        move.stop();
                 return 2;
         }
 

@@ -21,7 +21,7 @@ int Follow::run(int centerOfBB[2])
 		{
                 	//target in the middle
                 	if(WIDTH/3 <= centerOfBB[0] && centerOfBB[0] <= 2*WIDTH/3)
-                	{                
+                	{
 				move.forward(250);
                 		printf("forward\n");
 			}//target is not in the middle
